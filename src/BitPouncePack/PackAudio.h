@@ -23,6 +23,8 @@ namespace BitPouncePack
 		uint64_t AssetHandle;
 		uint64_t Size;
 		uint32_t Channels;
+		// NONE = 0, ZLIB = 1
+        uint8_t Compression = 1;
 		uint32_t SampleRate;
 		uint8_t HashType = 0;          // 0 = SHA-256
 		AudioFormat format;

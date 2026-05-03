@@ -14,6 +14,8 @@ namespace BitPouncePack
 		uint32_t Height;
 		// NEAREST = 0, LINEAR = 1
 		uint8_t Filter;
+		// NONE = 0, ZLIB = 1
+        uint8_t Compression = 1;
 
 		uint8_t HashType = 0;
 		uint8_t Channels = 0;

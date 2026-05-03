@@ -1,4 +1,42 @@
+project "zlib-lib"
+	targetdir ("../bin/" .. outputdir .. "/%{prj.name}")
+	objdir ("../bin-int/" .. outputdir .. "/%{prj.name}")
+	language    "C"
+	kind        "StaticLib"
+	defines     { "N_FSEEKO" }
+	warnings    "off"
+	includedirs { "zlib" }
 
+	files
+	{
+    	"zlib/adler32.c",
+    	"zlib/compress.c",
+    	"zlib/crc32.c",
+    	"zlib/deflate.c",
+    	"zlib/gzclose.c",
+    	"zlib/gzlib.c",
+    	"zlib/gzread.c",
+    	"zlib/gzwrite.c",
+    	"zlib/inflate.c",
+    	"zlib/infback.c",
+    	"zlib/inftrees.c",
+    	"zlib/inffast.c",
+    	"zlib/trees.c",
+    	"zlib/uncompr.c",
+    	"zlib/zutil.c",
+    	"zlib/*.h"
+	}
+
+	filter "system:windows"
+		defines { "_WINDOWS" }
+
+	filter "system:not windows"
+		defines { 'HAVE_UNISTD_H' }
+		removefiles
+    	{
+    	    "zlib/contrib/minizip/iowin32.c",
+    	    "zlib/contrib/minizip/iowin32.h"
+    	}
 
 project "BitPouncePack"
     kind "StaticLib"
@@ -10,7 +48,8 @@ project "BitPouncePack"
 
     files { "src/**cpp", "src/**cpp" }
 
-    includedirs { "src" }
+    includedirs { "src", "zlib" }
+	links { "zlib-lib" }
 
     filter "system:windows"
         staticruntime "On"

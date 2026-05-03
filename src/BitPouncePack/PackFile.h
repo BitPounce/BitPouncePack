@@ -10,6 +10,8 @@ namespace BitPouncePack
     {
         std::string Name;
         Hash hash;
+        // NONE = 0, ZLIB = 1
+        uint8_t Compression = 1;
         uint64_t Size;
         uint8_t HashType = 0;          // 0 = SHA-256
 

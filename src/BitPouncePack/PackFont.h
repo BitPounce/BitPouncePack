@@ -22,6 +22,8 @@ namespace BitPouncePack
         uint32_t Width, Height;         // atlas dimensions
         uint8_t HashType = 0;
         uint8_t Channels = 4;           // RGBA
+        // NONE = 0, ZLIB = 1
+        uint8_t Compression = 1;
 
         std::unique_ptr<std::byte[]> FontData;   // raw font file (main data block)
         std::unique_ptr<std::byte[]> AtlasData;  // RGBA8 atlas bitmap (stored in metadata)

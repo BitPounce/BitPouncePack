@@ -6,8 +6,11 @@
 #include <vector>
 #include <memory>
 #include <stdexcept>
+#include <zlib.h>
 
 namespace BitPouncePack {
+
+static constexpr uint16_t CURRENT_PACK_VERSION = 2;
 
 template<typename T>
 void write_le(std::ostream& os, T value) {
@@ -61,6 +64,7 @@ void write_metadata(std::ostream& os, const PackAsset& asset) {
         write_le(os, f.hash.d3); write_le(os, f.hash.d4);
         write_le(os, f.Size);
         write_le(os, f.HashType);
+        write_le(os, f.Compression);
     }
     else if (type == 1) { // PackTexture
         const auto& t = std::get<PackTexture>(asset);
@@ -73,6 +77,7 @@ void write_metadata(std::ostream& os, const PackAsset& asset) {
         write_le(os, t.HashType);
         write_le(os, t.Filter);
         write_le(os, t.Channels);
+        write_le(os, t.Compression);
     }
     else if (type == 2) { // PackScene
         const auto& s = std::get<PackScene>(asset);
@@ -88,6 +93,7 @@ void write_metadata(std::ostream& os, const PackAsset& asset) {
         write_le(os, a.SampleRate);
         write_le(os, a.HashType);
         write_le(os, static_cast<uint8_t>(a.format));
+        write_le(os, a.Compression);
     }
     else if (type == 4) { // PackFont
         const auto& f = std::get<PackFont>(asset);
@@ -99,6 +105,7 @@ void write_metadata(std::ostream& os, const PackAsset& asset) {
         write_le(os, f.Height);
         write_le(os, f.HashType);
         write_le(os, f.Channels);
+        write_le(os, f.Compression);
         write_le(os, f.EmSize);
         write_le(os, f.PixelRange);
         write_le(os, f.MiterLimit);
@@ -115,7 +122,7 @@ void write_metadata(std::ostream& os, const PackAsset& asset) {
             write_le(os, g.codepoint);
         }
 
-        // Write atlas bitmap as a binary blob (size + data)
+        // Write atlas bitmap as a binary blob (size + data) – not compressed
         uint64_t atlasSize = f.Width * f.Height * f.Channels;
         write_le(os, atlasSize);
         os.write(reinterpret_cast<const char*>(f.AtlasData.get()), atlasSize);
@@ -134,6 +141,7 @@ PackAsset read_metadata(std::istream& is) {
         f.hash.d3 = read_le<uint64_t>(is); f.hash.d4 = read_le<uint64_t>(is);
         f.Size = read_le<uint64_t>(is);
         f.HashType = read_le<uint8_t>(is);
+        f.Compression = read_le<uint8_t>(is);
         f.Data = nullptr;
         return f;
     }
@@ -148,6 +156,7 @@ PackAsset read_metadata(std::istream& is) {
         t.HashType = read_le<uint8_t>(is);
         t.Filter = read_le<uint8_t>(is);
         t.Channels = read_le<uint8_t>(is);
+        t.Compression = read_le<uint8_t>(is);
         t.Data = nullptr;
         return t;
     }
@@ -166,6 +175,7 @@ PackAsset read_metadata(std::istream& is) {
         a.SampleRate = read_le<uint32_t>(is);
         a.HashType = read_le<uint8_t>(is);
         a.format = static_cast<AudioFormat>(read_le<uint8_t>(is));
+        a.Compression = read_le<uint8_t>(is);
         a.Data = nullptr;
         return a;
     }
@@ -179,6 +189,7 @@ PackAsset read_metadata(std::istream& is) {
         f.Height = read_le<uint32_t>(is);
         f.HashType = read_le<uint8_t>(is);
         f.Channels = read_le<uint8_t>(is);
+        f.Compression = read_le<uint8_t>(is);
         f.EmSize = read_le<double>(is);
         f.PixelRange = read_le<double>(is);
         f.MiterLimit = read_le<double>(is);
@@ -217,7 +228,7 @@ void Save(const std::filesystem::path& filepath, const Pack& pack) {
 
     BitPouncePackHeader header = {};
     std::memcpy(header.nub, "BPPACK", 6);
-    header.ver = 1;
+    header.ver = CURRENT_PACK_VERSION;
     header.features = 0;
     header.assetCount = assetCount;
     header.LookUpTablePos = sizeof(header);
@@ -237,7 +248,7 @@ void Save(const std::filesystem::path& filepath, const Pack& pack) {
     }
     std::string metadata = metaStream.str();
 
-    // Build lookup table (data offsets)
+    // Build preliminary lookup table (data offsets, later updated with compressed sizes)
     std::vector<FileOffset> offsets(assetCount);
     uint64_t currentDataPos = header.FileMetaDataPos + metadata.size();
     for (size_t i = 0; i < assetCount; ++i) {
@@ -246,7 +257,7 @@ void Save(const std::filesystem::path& filepath, const Pack& pack) {
         currentDataPos = offsets[i].end;
     }
 
-    // Write lookup table
+    // Write lookup table (temporary; may be overwritten later)
     file.seekp(header.LookUpTablePos);
     for (const auto& off : offsets) {
         write_le(file, off.begin);
@@ -257,13 +268,53 @@ void Save(const std::filesystem::path& filepath, const Pack& pack) {
     file.seekp(header.FileMetaDataPos);
     file.write(metadata.data(), metadata.size());
 
-    // Write raw data blocks (font files, textures, audio, etc.)
+    // Write raw data blocks, compressing where requested
     for (size_t i = 0; i < assetCount; ++i) {
         if (offsets[i].begin == offsets[i].end) continue;
         file.seekp(offsets[i].begin);
-        const std::byte* data = asset_data(pack.assets[i]);
-        if (!data) throw std::runtime_error("Asset has no data but non-zero size");
-        file.write(reinterpret_cast<const char*>(data), asset_size(pack.assets[i]));
+
+        const std::byte* rawData = asset_data(pack.assets[i]);
+        uint64_t rawSize = asset_size(pack.assets[i]);
+        if (!rawData && rawSize > 0)
+            throw std::runtime_error("Asset has no data but non-zero size");
+
+        // Determine compression setting for this asset
+        uint8_t compression = 0;
+        if (const auto* f = std::get_if<PackFile>(&pack.assets[i]))
+            compression = f->Compression;
+        else if (const auto* t = std::get_if<PackTexture>(&pack.assets[i]))
+            compression = t->Compression;
+        else if (const auto* a = std::get_if<PackAudio>(&pack.assets[i]))
+            compression = a->Compression;
+        else if (const auto* fnt = std::get_if<PackFont>(&pack.assets[i]))
+            compression = fnt->Compression;
+
+        if (compression == 1 && rawSize > 0) {
+            // Compress data
+            uLongf compressedSize = compressBound(rawSize);
+            std::vector<std::byte> compressed(compressedSize);
+            int ret = compress2(reinterpret_cast<Bytef*>(compressed.data()), &compressedSize,
+                                reinterpret_cast<const Bytef*>(rawData), rawSize,
+                                Z_BEST_COMPRESSION);
+            if (ret != Z_OK)
+                throw std::runtime_error("ZLIB compression failed");
+
+            std::cout << "Compress Size: " << std::to_string(compressedSize) << ", Non-Compressd Size: " << std::to_string(rawSize);
+            // Write compressed data (actual size = compressedSize)
+            file.write(reinterpret_cast<const char*>(compressed.data()), compressedSize);
+            // Update lookup table entry to the compressed size
+            offsets[i].end = offsets[i].begin + compressedSize;
+        } else {
+            // Write uncompressed
+            file.write(reinterpret_cast<const char*>(rawData), rawSize);
+        }
+    }
+
+    // Rewrite the lookup table with correct (possibly compressed) sizes
+    file.seekp(header.LookUpTablePos);
+    for (const auto& off : offsets) {
+        write_le(file, off.begin);
+        write_le(file, off.end);
     }
 }
 
@@ -271,6 +322,7 @@ Pack Load(const std::filesystem::path& filepath) {
     std::ifstream file(filepath, std::ios::binary);
     if (!file)
         throw std::runtime_error("Cannot open pack file: " + filepath.string());
+
     BitPouncePackHeader header = {};
     file.read(header.nub, 6);
     header.ver = read_le<uint16_t>(file);
@@ -281,7 +333,7 @@ Pack Load(const std::filesystem::path& filepath) {
 
     if (std::memcmp(header.nub, "BPPACK", 6) != 0)
         throw std::runtime_error("Invalid signature");
-    if (header.ver != 1)
+    if (header.ver != 2)
         throw std::runtime_error("Unsupported version");
 
     uint64_t assetCount = header.assetCount;
@@ -302,24 +354,56 @@ Pack Load(const std::filesystem::path& filepath) {
         assets.push_back(read_metadata(file));
     }
 
-    // Read raw data blocks
+    // Read raw data blocks (may be compressed)
     for (uint64_t i = 0; i < assetCount; ++i) {
-        uint64_t size = offsets[i].end - offsets[i].begin;
-        if (size == 0) continue;
-        auto data = std::make_unique<std::byte[]>(size);
+        uint64_t storedSize = offsets[i].end - offsets[i].begin;
+        if (storedSize == 0) continue;
+
+        auto compressedData = std::make_unique<std::byte[]>(storedSize);
         file.seekg(offsets[i].begin);
-        file.read(reinterpret_cast<char*>(data.get()), size);
+        file.read(reinterpret_cast<char*>(compressedData.get()), storedSize);
         if (!file)
             throw std::runtime_error("Failed to read asset data");
 
+        uint64_t originalSize = asset_size(assets[i]);
+        uint8_t compression = 0;
         if (auto* f = std::get_if<PackFile>(&assets[i]))
-            f->Data = std::move(data);
+            compression = f->Compression;
         else if (auto* t = std::get_if<PackTexture>(&assets[i]))
-            t->Data = std::move(data);
+            compression = t->Compression;
         else if (auto* a = std::get_if<PackAudio>(&assets[i]))
-            a->Data = std::move(data);
-        else if (auto* f = std::get_if<PackFont>(&assets[i]))
-            f->FontData = std::move(data);
+            compression = a->Compression;
+        else if (auto* fnt = std::get_if<PackFont>(&assets[i]))
+            compression = fnt->Compression;
+
+        if (compression == 1 && originalSize > 0) {
+            // Decompress
+            auto decompressed = std::make_unique<std::byte[]>(originalSize);
+            uLongf decompressedSize = originalSize;
+            int ret = uncompress(reinterpret_cast<Bytef*>(decompressed.get()), &decompressedSize,
+                                 reinterpret_cast<const Bytef*>(compressedData.get()), storedSize);
+            if (ret != Z_OK || decompressedSize != originalSize)
+                throw std::runtime_error("ZLIB decompression failed");
+
+            if (auto* f = std::get_if<PackFile>(&assets[i]))
+                f->Data = std::move(decompressed);
+            else if (auto* t = std::get_if<PackTexture>(&assets[i]))
+                t->Data = std::move(decompressed);
+            else if (auto* a = std::get_if<PackAudio>(&assets[i]))
+                a->Data = std::move(decompressed);
+            else if (auto* fnt = std::get_if<PackFont>(&assets[i]))
+                fnt->FontData = std::move(decompressed);
+        } else {
+            // No compression: assign as is
+            if (auto* f = std::get_if<PackFile>(&assets[i]))
+                f->Data = std::move(compressedData);
+            else if (auto* t = std::get_if<PackTexture>(&assets[i]))
+                t->Data = std::move(compressedData);
+            else if (auto* a = std::get_if<PackAudio>(&assets[i]))
+                a->Data = std::move(compressedData);
+            else if (auto* fnt = std::get_if<PackFont>(&assets[i]))
+                fnt->FontData = std::move(compressedData);
+        }
     }
 
     Pack pack;
