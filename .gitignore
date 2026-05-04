@@ -70,3 +70,5 @@ Testing/
 .cache/
 BitPouncePack.make
 zlib-lib.make
+*.vcxproj
+*.user

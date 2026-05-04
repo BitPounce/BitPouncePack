@@ -2,7 +2,6 @@
 
 #include <map>
 #include <variant>
-#include <glm/glm.hpp>
 #include <any>
 #include <vector>
 #include <string>
@@ -13,6 +12,39 @@
 
 namespace BitPouncePack
 {
+    template<typename T>
+    struct Vec4
+    {
+        union
+        {
+            struct { T x, y, z, w; };
+            struct { T r, g, b, a; }; // color
+            T data[4];
+        };
+    };
+
+    template<typename T>
+    struct Vec3
+    {
+        union
+        {
+            struct { T x, y, z; };
+            struct { T r, g, b; }; // colour
+            T data[3];
+        };
+    };
+
+    template<typename T>
+    struct Vec2
+    {
+        union
+        {
+            struct { T x, y; };
+            struct { T r, g; }; // colour
+            T data[2];
+        };
+    };
+
     // Forward declarations
     class SerializationObject;
     class SerializationObjectArray;
@@ -53,63 +85,63 @@ namespace BitPouncePack
     }
 
     // glm vector serialization
-    inline void write_vec2(std::ostream& os, const glm::vec2& v)
+    inline void write_vec2(std::ostream& os, const Vec2<float>& v)
     {
         write_binary(os, v.x); write_binary(os, v.y);
     }
-    inline glm::vec2 read_vec2(std::istream& is)
+    inline Vec2<float> read_vec2(std::istream& is)
     {
-        glm::vec2 v;
+        Vec2<float> v;
         v.x = read_binary<float>(is); v.y = read_binary<float>(is);
         return v;
     }
-    inline void write_vec3(std::ostream& os, const glm::vec3& v)
+    inline void write_vec3(std::ostream& os, const Vec3<float>& v)
     {
         write_binary(os, v.x); write_binary(os, v.y); write_binary(os, v.z);
     }
-    inline glm::vec3 read_vec3(std::istream& is)
+    inline Vec3<float> read_vec3(std::istream& is)
     {
-        glm::vec3 v;
+        Vec3<float> v;
         v.x = read_binary<float>(is); v.y = read_binary<float>(is); v.z = read_binary<float>(is);
         return v;
     }
-    inline void write_vec4(std::ostream& os, const glm::vec4& v)
+    inline void write_vec4(std::ostream& os, const Vec4<float>& v)
     {
         write_binary(os, v.x); write_binary(os, v.y); write_binary(os, v.z); write_binary(os, v.w);
     }
-    inline glm::vec4 read_vec4(std::istream& is)
+    inline Vec4<float> read_vec4(std::istream& is)
     {
-        glm::vec4 v;
+        Vec4<float> v;
         v.x = read_binary<float>(is); v.y = read_binary<float>(is); v.z = read_binary<float>(is); v.w = read_binary<float>(is);
         return v;
     }
-    inline void write_vec2i(std::ostream& os, const glm::ivec2& v)
+    inline void write_vec2i(std::ostream& os, const Vec2<int>& v)
     {
         write_binary(os, v.x); write_binary(os, v.y);
     }
-    inline glm::ivec2 read_vec2i(std::istream& is)
+    inline Vec2<int> read_vec2i(std::istream& is)
     {
-        glm::ivec2 v;
+        Vec2<int> v;
         v.x = read_binary<int32_t>(is); v.y = read_binary<int32_t>(is);
         return v;
     }
-    inline void write_vec3i(std::ostream& os, const glm::ivec3& v)
+    inline void write_vec3i(std::ostream& os, const Vec3<int>& v)
     {
         write_binary(os, v.x); write_binary(os, v.y); write_binary(os, v.z);
     }
-    inline glm::ivec3 read_vec3i(std::istream& is)
+    inline Vec3<int> read_vec3i(std::istream& is)
     {
-        glm::ivec3 v;
+        Vec3<int> v;
         v.x = read_binary<int32_t>(is); v.y = read_binary<int32_t>(is); v.z = read_binary<int32_t>(is);
         return v;
     }
-    inline void write_vec4i(std::ostream& os, const glm::ivec4& v)
+    inline void write_vec4i(std::ostream& os, const Vec4<int>& v)
     {
         write_binary(os, v.x); write_binary(os, v.y); write_binary(os, v.z); write_binary(os, v.w);
     }
-    inline glm::ivec4 read_vec4i(std::istream& is)
+    inline Vec4<int> read_vec4i(std::istream& is)
     {
-        glm::ivec4 v;
+        Vec4<int> v;
         v.x = read_binary<int32_t>(is); v.y = read_binary<int32_t>(is); v.z = read_binary<int32_t>(is); v.w = read_binary<int32_t>(is);
         return v;
     }
@@ -323,12 +355,12 @@ namespace BitPouncePack
             case SerializationType::Float: write_binary(os, std::any_cast<float>(value)); break;
             case SerializationType::Double: write_binary(os, std::any_cast<double>(value)); break;
             case SerializationType::String: write_string(os, std::any_cast<std::string>(value)); break;
-            case SerializationType::Vector2: write_vec2(os, std::any_cast<glm::vec2>(value)); break;
-            case SerializationType::Vector3: write_vec3(os, std::any_cast<glm::vec3>(value)); break;
-            case SerializationType::Vector4: write_vec4(os, std::any_cast<glm::vec4>(value)); break;
-            case SerializationType::Vector2Int: write_vec2i(os, std::any_cast<glm::ivec2>(value)); break;
-            case SerializationType::Vector3Int: write_vec3i(os, std::any_cast<glm::ivec3>(value)); break;
-            case SerializationType::Vector4Int: write_vec4i(os, std::any_cast<glm::ivec4>(value)); break;
+            case SerializationType::Vector2: write_vec2(os, std::any_cast<Vec2<float>>(value)); break;
+            case SerializationType::Vector3: write_vec3(os, std::any_cast<Vec3<float>>(value)); break;
+            case SerializationType::Vector4: write_vec4(os, std::any_cast<Vec4<float>>(value)); break;
+            case SerializationType::Vector2Int: write_vec2i(os, std::any_cast<Vec2<int>>(value)); break;
+            case SerializationType::Vector3Int: write_vec3i(os, std::any_cast<Vec3<int>>(value)); break;
+            case SerializationType::Vector4Int: write_vec4i(os, std::any_cast<Vec4<int>>(value)); break;
             case SerializationType::SerializationObject:
                 std::any_cast<SerializationObject>(value).Write(os);
                 break;
